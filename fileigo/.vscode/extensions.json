@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss",
+    "csstools.postcss",
+    "Supabase.vscode-supabase-extension",
+    "GoogleCloudTools.firebase-dataconnect-vscode",
+    "ckolkman.vscode-postgres"
+  ]
+}
+

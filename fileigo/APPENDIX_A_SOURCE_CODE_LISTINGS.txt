@@ -1,0 +1,249 @@
+APPENDIX A
+SOURCE CODE LISTINGS
+
+======================================================================
+A.1 Supabase Client Configuration
+File: src/lib/supabase.ts
+======================================================================
+
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn("Supabase credentials are missing. Please check your .env.local file.");
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+
+======================================================================
+A.2 User Authentication Module
+File: src/services/auth.ts
+======================================================================
+
+import { supabase } from "@/lib/supabase";
+
+export const signIn = async (email: string, password: string) => {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+  if (error) throw error;
+  return data;
+};
+
+export const signUp = async (email: string, password: string, name: string, role = "student") => {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        full_name: name,
+        role: role,
+      }
+    }
+  });
+  if (error) throw error;
+
+  // Programmatic fallback: if the database trigger is not active, insert profile directly.
+  if (data?.user) {
+    try {
+      await supabase.from("users").upsert({
+        id: data.user.id,
+        name: name,
+        email: email,
+        role: role,
+      });
+    } catch (e: any) {
+      console.warn("Direct profile sync skipped or failed (triggers might be handling this):", e?.message || e);
+    }
+  }
+
+  return data;
+};
+
+export const signOut = async () => {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+};
+
+export const subscribeToAuthChanges = (callback: (user: any) => void) => {
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    callback(session?.user ?? null);
+  });
+  return subscription;
+};
+
+export const updateProfile = async (updates: { full_name?: string; avatar_url?: string }) => {
+  const { data, error } = await supabase.auth.updateUser({
+    data: updates
+  });
+  if (error) throw error;
+  return data;
+};
+
+export const getUserProfile = async (userId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    if (error) {
+      console.warn(`Profile table query returned error (falling back to default): ${error.message}`);
+      return { id: userId, role: "student", name: "User", email: "" };
+    }
+    return data;
+  } catch (err: any) {
+    console.warn("Fallback triggered: profiles table query failed:", err?.message || err);
+    return { id: userId, role: "student", name: "User", email: "" };
+  }
+};
+
+
+======================================================================
+A.3 Document Upload Function
+File: src/services/documents.ts (uploadDocument)
+======================================================================
+
+export const uploadDocument = async (
+  file: File, 
+  metadata: Omit<DocumentMetadata, "file_url" | "file_name" | "file_type" | "file_size" | "user_id">,
+  userId: string,
+  onProgress?: (progress: number) => void
+) => {
+  const fileName = `${Date.now()}_${file.name}`;
+  const filePath = `${userId}/${fileName}`;
+
+  // Upload to Supabase Storage
+  const { data: storageData, error: storageError } = await supabase.storage
+    .from("documents")
+    .upload(filePath, file, {
+      cacheControl: "3600",
+      upsert: false,
+    });
+
+  if (storageError) throw storageError;
+
+  // Get public URL
+  const { data: { publicUrl } } = supabase.storage
+    .from("documents")
+    .getPublicUrl(filePath);
+
+  // Save metadata to Supabase Database (PostgreSQL) and return inserted record
+  const { data: dbData, error: dbError } = await supabase
+    .from("documents")
+    .insert({
+      ...metadata,
+      user_id: userId,
+      file_url: publicUrl,
+      file_name: fileName,
+      file_type: file.type || "unknown",
+      file_size: (file.size / 1024 / 1024).toFixed(2) + " MB",
+    })
+    .select()
+    .single();
+
+  if (dbError) {
+    // Cleanup storage if database insert fails
+    await supabase.storage.from("documents").remove([filePath]);
+    throw dbError;
+  }
+
+  // Create Audit Log
+  await createAuditLog(userId, "UPLOAD", `Uploaded document: ${metadata.name}`);
+
+  return dbData;
+};
+
+
+======================================================================
+A.4 Document Retrieval Function
+File: src/services/documents.ts (getDocuments)
+======================================================================
+
+export const getDocuments = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data;
+};
+
+
+======================================================================
+A.5 PWA Configuration
+Files: next.config.ts, public/manifest.json, src/app/layout.tsx
+======================================================================
+
+-----------------------
+1. next.config.ts
+-----------------------
+// @ts-nocheck
+import type { NextConfig } from "next";
+import withPWAInit from "next-pwa";
+
+const withPWA = withPWAInit({
+  dest: "public",
+  register: true,
+  skipWaiting: true,
+  disable: process.env.NODE_ENV === "development",
+});
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default withPWA(nextConfig);
+
+-----------------------
+2. public/manifest.json
+-----------------------
+{
+  "name": "Fileigo",
+  "short_name": "Fileigo",
+  "description": "Secure cloud-based digital vault designed for students.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f9ff",
+  "theme_color": "#000f22",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
+
+-----------------------
+3. src/app/layout.tsx (Metadata & Viewport snippets)
+-----------------------
+export const viewport = {
+  themeColor: "#000f22",
+};
+
+export const metadata: Metadata = {
+  title: "Fileigo | Secure Academic Document Vault",
+  description: "Secure cloud-based digital vault designed for students to store, organize, and access academic documents.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Fileigo",
+  },
+  icons: {
+    apple: "/apple-icon.png",
+  },
+};
