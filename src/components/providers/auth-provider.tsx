@@ -90,7 +90,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const isAdminRoute = pathname.startsWith("/dashboard/admin");
         const isVerifierRoute = pathname.startsWith("/dashboard/verify") || pathname.includes("/verify/");
 
-        if (isAdminRoute && userProfile.role !== "admin") {
+        if (isAdminRoute && userProfile.role !== "student") {
           console.warn("Access denied: Admin role required");
           router.push("/dashboard");
         } else if (isVerifierRoute && userProfile.role !== "verifier" && userProfile.role !== "admin") {
