@@ -52,7 +52,18 @@ import { supabase } from "@/lib/supabase";
 import { getUsers, updateUserRole, createAuditLog } from "@/services/documents";
 
 export default function CreateVerifierPage() {
-  const { user, userProfile } = useAuth();
+  const { user, userProfile, loading: authLoading } = useAuth();
+
+  // Bug 10: Per-page admin guard
+  if (!authLoading && userProfile?.role !== "admin") {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 text-muted-foreground">
+        <ShieldAlert className="w-10 h-10 text-destructive" />
+        <p className="font-bold text-foreground">Access Denied</p>
+        <p className="text-sm">Admin privileges required to view this page.</p>
+      </div>
+    );
+  }
   
   // Navigation tabs: 'create' or 'directory'
   const [activeTab, setActiveTab] = useState<"create" | "directory">("create");
@@ -76,6 +87,7 @@ export default function CreateVerifierPage() {
   const [isRevokeOpen, setIsRevokeOpen] = useState(false);
   const [selectedVerifier, setSelectedVerifier] = useState<any | null>(null);
   const [revoking, setRevoking] = useState(false);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
 
   // Load Verifiers
   const loadVerifiers = async () => {
@@ -105,16 +117,16 @@ export default function CreateVerifierPage() {
 
   // Password Strength Checker
   const getPasswordStrength = () => {
-    if (!password) return { score: 0, text: "", color: "bg-muted" };
-    if (password.length < 6) return { score: 1, text: "Weak (too short)", color: "bg-destructive" };
-    
+    if (!password) return { score: 0, text: "", barColor: "bg-muted", textColor: "text-muted-foreground" };
+    if (password.length < 6) return { score: 1, text: "Weak (too short)", barColor: "bg-destructive", textColor: "text-destructive" };
+
     const hasNumbers = /\d/.test(password);
     const hasSpecial = /[^A-Za-z0-9]/.test(password);
-    
+
     if (hasNumbers && hasSpecial) {
-      return { score: 3, text: "Strong", color: "bg-green-500" };
+      return { score: 3, text: "Strong", barColor: "bg-green-500", textColor: "text-green-600" };
     }
-    return { score: 2, text: "Medium", color: "bg-amber-500" };
+    return { score: 2, text: "Medium", barColor: "bg-amber-500", textColor: "text-amber-600" };
   };
 
   const pwdStrength = getPasswordStrength();
@@ -196,6 +208,7 @@ export default function CreateVerifierPage() {
     if (!selectedVerifier || !userProfile) return;
 
     setRevoking(true);
+    setRevokeError(null);
     try {
       // Demote verifier back to a student role
       await updateUserRole(selectedVerifier.id, "student");
@@ -213,7 +226,7 @@ export default function CreateVerifierPage() {
       setSelectedVerifier(null);
     } catch (err: any) {
       console.error(err);
-      alert(err.message || "Failed to revoke verifier credentials.");
+      setRevokeError(err.message || "Failed to revoke verifier credentials.");
     } finally {
       setRevoking(false);
     }
@@ -388,13 +401,13 @@ export default function CreateVerifierPage() {
                   <div className="space-y-1.5 pt-1.5 animate-in fade-in duration-200">
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-muted-foreground">Strength:</span>
-                      <span className="font-bold capitalize" style={{ color: `var(--${pwdStrength.color})` }}>
+                      <span className={`font-bold capitalize ${pwdStrength.textColor}`}>
                         {pwdStrength.text}
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
                       <div
-                        className={`h-full transition-all duration-300 ${pwdStrength.color}`}
+                        className={`h-full transition-all duration-300 ${pwdStrength.barColor}`}
                         style={{ width: `${(pwdStrength.score / 3) * 100}%` }}
                       />
                     </div>
@@ -532,7 +545,7 @@ export default function CreateVerifierPage() {
       )}
 
       {/* CONFIRMATION REVOKE DIALOG */}
-      <Dialog open={isRevokeOpen} onOpenChange={setIsRevokeOpen}>
+      <Dialog open={isRevokeOpen} onOpenChange={(open) => { setIsRevokeOpen(open); if (!open) setRevokeError(null); }}>
         <DialogContent className="max-w-md border-border/50 shadow-lg">
           <DialogHeader className="space-y-3">
             <div className="w-12 h-12 rounded-full bg-destructive/10 text-destructive flex items-center justify-center mx-auto sm:mx-0">
@@ -552,6 +565,15 @@ export default function CreateVerifierPage() {
               This will demote the account back to a <span className="font-bold text-foreground">Student</span>. The user will lose all rights to review, clear, or view student documents immediately.
             </DialogDescription>
           </DialogHeader>
+
+          {/* Bug 9: Inline error instead of alert() */}
+          {revokeError && (
+            <div className="p-3 text-sm bg-destructive/10 text-destructive rounded-md border border-destructive/20 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 shrink-0" />
+              {revokeError}
+            </div>
+          )}
+
           <DialogFooter className="mt-4 gap-2">
             <DialogClose asChild>
               <Button variant="outline" className="font-semibold">Cancel</Button>

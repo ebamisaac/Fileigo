@@ -15,7 +15,7 @@ import {
   ArrowRight
 } from "lucide-react";
 import Link from "next/link";
-import { getAuditLogs, getSubmissions, getUsers, getDocuments } from "@/services/documents";
+import { getAuditLogs, getSubmissions, getUsers } from "@/services/documents";
 
 export function AdminDashboard() {
   const [users, setUsers] = useState<any[]>([]);
@@ -42,7 +42,18 @@ export function AdminDashboard() {
     };
 
     fetchAdminData();
+
+    // Re-fetch whenever the user returns to this tab (e.g. after changing a role
+    // on the Users page and navigating back) so counts stay fresh.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchAdminData();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
+
 
   // Compute platform metrics
   const totalUsers = users.length;

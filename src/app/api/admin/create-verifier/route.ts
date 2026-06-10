@@ -90,11 +90,16 @@ export async function POST(request: Request) {
       throw createUserError;
     }
 
+    const newUserId = authData?.user?.id;
+    if (!newUserId) {
+      throw new Error("User creation succeeded but returned no user ID.");
+    }
+
     // 2️⃣ Insert profile row with verifier role
     const { error: insertError } = await supabaseAdmin
       .from("users")
       .insert({
-        id: authData?.user?.id,
+        id: newUserId,
         email,
         name,
         role: "verifier",
@@ -102,9 +107,10 @@ export async function POST(request: Request) {
 
     if (insertError) {
       // Roll back auth user if DB insert fails
-      await supabaseAdmin.auth.admin.deleteUser(authData?.user?.id);
+      await supabaseAdmin.auth.admin.deleteUser(newUserId);
       throw insertError;
     }
+
 
     return NextResponse.json(
       { message: "Verifier created successfully." },

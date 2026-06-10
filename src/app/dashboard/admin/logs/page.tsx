@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getAuditLogs } from "@/services/documents";
+import { useAuth } from "@/components/providers/auth-provider";
 import { 
   ArrowLeft, 
   Loader2, 
@@ -15,6 +16,19 @@ import {
 import Link from "next/link";
 
 export default function AuditLogsPage() {
+  const { userProfile, loading: authLoading } = useAuth();
+
+  // Per-page admin guard (Bug 10)
+  if (!authLoading && userProfile?.role !== "admin") {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 text-muted-foreground">
+        <ShieldAlert className="w-10 h-10 text-destructive" />
+        <p className="font-bold text-foreground">Access Denied</p>
+        <p className="text-sm">Admin privileges required to view this page.</p>
+      </div>
+    );
+  }
+
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
